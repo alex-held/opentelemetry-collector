@@ -4,7 +4,9 @@
 package otlpreceiver // import "go.opentelemetry.io/collector/receiver/otlpreceiver"
 
 import (
+	"context"
 	"fmt"
+	"google.golang.org/grpc/metadata"
 	"io"
 	"mime"
 	"net/http"
@@ -71,7 +73,7 @@ func handleMetrics(resp http.ResponseWriter, req *http.Request, metricsReceiver 
 		return
 	}
 
-	otlpResp, err := metricsReceiver.Export(req.Context(), otlpReq)
+	otlpResp, err := metricsReceiver.Export(contextWithMetadata(req), otlpReq)
 	if err != nil {
 		writeError(resp, enc, err, http.StatusInternalServerError)
 		return
@@ -83,6 +85,23 @@ func handleMetrics(resp http.ResponseWriter, req *http.Request, metricsReceiver 
 		return
 	}
 	writeResponse(resp, enc.contentType(), http.StatusOK, msg)
+}
+
+func contextWithMetadata(req *http.Request) context.Context {
+	ctx := req.Context()
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		md = metadata.New(map[string]string{})
+	}
+
+	// only add authorization if not there
+	if len(md["authorization"]) == 0 || md["authorization"][0] == "" {
+		auth := req.Header.Get("Authorization")
+		md.Set("authorization", auth)
+		ctx = metadata.NewIncomingContext(ctx, md)
+	}
+
+	return metadata.NewOutgoingContext(ctx, md)
 }
 
 func handleLogs(resp http.ResponseWriter, req *http.Request, logsReceiver *logs.Receiver) {
